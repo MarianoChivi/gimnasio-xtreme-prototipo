@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Ban, Check, CreditCard, FileText, History, Plus, Search, Tag, Pencil } from 'lucide-react'
 import { useStore } from '../store'
-import { cajaAbierta, cuotasAdeudadas, estadoCuota, nombreSocio, valorVigente } from '../logic'
+import { cajaAbierta, cajaDe, cuotasAdeudadas, estadoCuota, nombreSocio, valorModificable, valorVigente } from '../logic'
 import { addDays, fmtDate, fmtDateTime, initials, money, normalize, periodoLabel, toISODate } from '../utils'
 import ComprobanteModal from '../components/Comprobante'
+import AnularModal from '../components/AnularModal'
 import {
   Avatar, Badge, Button, Confirm, cx, Empty, ErrorBox, Field, IconButton, InfoBox, Input, Modal, PageHeader, SearchInput, Section, Segmented, SuccessModal, Table, Tabs, useToast,
 } from '../components/ui'
@@ -12,7 +13,6 @@ import {
 function RegistrarPago() {
   const { state, api, estadoSocio, hoy } = useStore()
   const [params, setParams] = useSearchParams()
-  const nav = useNavigate()
   const dni = params.get('dni')
   const [q, setQ] = useState('')
   const [buscado, setBuscado] = useState(false)
@@ -219,7 +219,7 @@ function RegistrarPago() {
 }
 
 function Historial() {
-  const { state, api, usuario } = useStore()
+  const { state, api } = useStore()
   const toast = useToast()
   const [q, setQ] = useState('')
   const [comp, setComp] = useState(null)
@@ -247,33 +247,30 @@ function Historial() {
             render: (p) => (
               <div className="flex justify-end gap-1">
                 <IconButton icon={FileText} title="Ver comprobante" onClick={() => setComp(p.comprobante)} />
-                {p.estado === 'Registrado' && usuario.rol === 'Propietario' && <IconButton icon={Ban} title="Anular pago" variant="danger" onClick={() => setAnular(p)} />}
+                {p.estado === 'Registrado' && <IconButton icon={Ban} title="Anular pago" variant="danger" onClick={() => setAnular(p)} />}
               </div>
             ),
           },
         ]}
       />
-      <Confirm
+      <AnularModal
         open={!!anular}
         onClose={() => setAnular(null)}
         title="Anular Pago"
-        confirmText="Anular pago"
+        caja={anular && cajaDe(state, anular.cajaId)}
+        rows={anular ? [['Socio', nombreSocio(state, anular.socioDni)], ['Fecha', fmtDateTime(anular.fecha)], ['Cuotas', anular.cuotaIds.map((id) => periodoLabel(id.slice(-7))).join(', ')], ['Monto', money(anular.monto)], ['Comprobante', anular.comprobante], ['Estado', <Badge key="e">{anular.estado}</Badge>]] : []}
         onConfirm={() => {
           try {
             api.anularPago(anular.id)
-            toast(`Pago ${anular.comprobante} anulado. Las cuotas vuelven a quedar pendientes.`)
+            toast(`Pago ${anular.comprobante} anulado. Las cuotas vuelven a quedar impagas.`)
           } catch (e) {
             toast(e.message, 'error')
           }
           setAnular(null)
         }}
       >
-        {anular && (
-          <>
-            ¿Confirmás la anulación del pago de <b>{nombreSocio(state, anular.socioDni)}</b> por <b>{money(anular.monto)}</b>? Las cuotas vuelven a quedar impagas y se actualiza el estado del socio.
-          </>
-        )}
-      </Confirm>
+        Las cuotas vuelven a quedar impagas, se actualiza el estado del socio, el monto se resta de la caja del día y el comprobante queda anulado.
+      </AnularModal>
       {comp && <ComprobanteModal numero={comp} onClose={() => setComp(null)} />}
     </>
   )
@@ -285,15 +282,15 @@ function ValorCuota() {
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState({ valor: '', fechaDesde: '' })
   const [error, setError] = useState('')
-  const valores = [...state.valoresCuota].sort((a, b) => b.fechaDesde.localeCompare(a.fechaDesde))
-  const vigente = valorVigente(state)
-  const futuro = valores.find((v) => v.fechaDesde > hoy)
+  const valores = [...state.valoresCuota].sort((a, b) => b.fechaDesde.localeCompare(a.fechaDesde) || b.id - a.id)
+  const vigenteObj = valores.find((v) => v.fechaDesde <= hoy)
+  const editable = valorModificable(state)
   const pt = usuario.rol === 'Propietario'
 
   const guardar = () => {
     try {
       if (modal === 'nuevo') api.registrarValorCuota(form.valor, form.fechaDesde)
-      else api.modificarValorCuota(modal.id, form.valor)
+      else api.modificarValorCuota(modal.id, form.valor, form.fechaDesde)
       toast('Valor de cuota guardado.')
       setModal(null)
     } catch (e) {
@@ -306,15 +303,15 @@ function ValorCuota() {
       <div className="space-y-4">
         <div className="rounded-xl bg-gradient-to-br from-ink-700 to-ink-800 p-6 text-white shadow-card">
           <p className="text-sm text-white/60">Valor vigente de la cuota</p>
-          <p className="mt-1 text-4xl font-extrabold">{money(vigente)}</p>
-          <p className="mt-2 text-xs text-white/50">Se aplica a las cuotas que vencen desde {fmtDate(valores.find((v) => v.fechaDesde <= hoy)?.fechaDesde)}</p>
+          <p className="mt-1 text-4xl font-extrabold">{money(valorVigente(state))}</p>
+          <p className="mt-2 text-xs text-white/50">Vigente desde el {fmtDate(vigenteObj?.fechaDesde)}</p>
         </div>
-        {futuro && (
+        {editable && (
           <InfoBox>
-            Próximo valor: <b>{money(futuro.valor)}</b> desde el {fmtDate(futuro.fechaDesde)}.
+            Último valor registrado: <b>{money(editable.valor)}</b> desde el {fmtDate(editable.fechaDesde)}. Todavía no se aplicó a ninguna cuota.
           </InfoBox>
         )}
-        {pt && !futuro && (
+        {pt && !editable && (
           <Button
             icon={Plus}
             className="w-full"
@@ -335,12 +332,12 @@ function ValorCuota() {
             { header: 'Valor', render: (v) => <b>{money(v.valor)}</b> },
             { header: 'Vigente desde', render: (v) => fmtDate(v.fechaDesde) },
             { header: 'Registrado', render: (v) => fmtDate(v.fechaRegistro), className: 'hidden sm:table-cell' },
-            { header: 'Situación', render: (v) => (v.fechaDesde > hoy ? <Badge>Pendiente</Badge> : v.valor === vigente && v === valores.find((x) => x.fechaDesde <= hoy) ? <Badge>Activo</Badge> : <Badge>Finalizada</Badge>) },
+            { header: 'Situación', render: (v) => <Badge>{v.fechaDesde > hoy ? 'Pendiente' : v === vigenteObj ? 'Activo' : 'Finalizada'}</Badge> },
             {
               header: '',
               align: 'right',
               render: (v) =>
-                pt && v.fechaDesde > hoy ? (
+                pt && editable?.id === v.id ? (
                   <IconButton
                     icon={Pencil}
                     title="Modificar valor"
@@ -354,7 +351,7 @@ function ValorCuota() {
             },
           ]}
         />
-        <p className="mt-2 text-xs text-ink-400">Solo se puede modificar un valor que todavía no se aplicó.</p>
+        <p className="mt-2 text-xs text-ink-400">Solo se puede modificar el último valor registrado, mientras no se haya aplicado a ninguna cuota.</p>
       </div>
       <Modal
         open={!!modal}
@@ -375,8 +372,8 @@ function ValorCuota() {
           <Field label="Valor de la cuota ($)">
             <Input type="number" min="1" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} autoFocus />
           </Field>
-          <Field label="Vigente desde" hint="Se aplica a las cuotas que venzan desde esta fecha.">
-            <Input type="date" value={form.fechaDesde} disabled={modal !== 'nuevo'} onChange={(e) => setForm({ ...form, fechaDesde: e.target.value })} />
+          <Field label="Vigente desde" hint="No se admite una vigencia anterior a hoy. Se aplica a las cuotas que venzan desde esta fecha.">
+            <Input type="date" min={hoy} value={form.fechaDesde} onChange={(e) => setForm({ ...form, fechaDesde: e.target.value })} />
           </Field>
           <ErrorBox>{error}</ErrorBox>
         </div>

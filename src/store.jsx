@@ -3,7 +3,7 @@ import * as logic from './logic'
 import { buildSeed } from './seed'
 import { todayISO } from './utils'
 
-const KEY = 'gimnasio-xtreme-prototipo-v1'
+const KEY = 'gimnasio-xtreme-prototipo-v2'
 const Ctx = createContext(null)
 
 function load() {

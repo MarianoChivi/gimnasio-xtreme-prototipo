@@ -170,16 +170,17 @@ export function buildSeed() {
       }
       const n = next(d, 'venta')
       const total = items.reduce((a, it) => a + it.cantidad * it.precio, 0)
-      const socio = r() < 0.6 ? activos[Math.floor(r() * activos.length)] : null
-      const cliente = socio ? { tipo: 'socio', dni: socio.dni } : { tipo: 'externo' }
       const mp = metodo()
-      const comp = comprobante(m.fecha, 'Venta', n, total, mp, socio ? `${socio.nombre} ${socio.apellido} · DNI ${socio.dni}` : 'Cliente externo', items.map((it) => ({ concepto: it.nombre, cantidad: it.cantidad, importe: it.cantidad * it.precio })))
-      d.ventas.push({ id: n, numero: code('VEN', n), fecha: m.fecha, cliente, items, total, metodo: mp, estado: 'Confirmada', cajaId: null, usuarioId: 2, comprobante: comp.numero })
+      const comp = comprobante(m.fecha, 'Venta', n, total, mp, 'Venta de mostrador', items.map((it) => ({ concepto: it.nombre, cantidad: it.cantidad, importe: it.cantidad * it.precio })))
+      d.ventas.push({ id: n, numero: code('VEN', n), fecha: m.fecha, items, total, metodo: mp, estado: 'Confirmada', cajaId: null, usuarioId: 2, comprobante: comp.numero })
     }
   }
   // Una venta anulada de ejemplo
   const anulada = d.ventas[d.ventas.length - 12]
-  if (anulada) anulada.estado = 'Anulada'
+  if (anulada) {
+    anulada.estado = 'Anulada'
+    d.comprobantes.find((c) => c.numero === anulada.comprobante).anulado = true
+  }
 
   // Cajas: una por día hábil de las últimas dos semanas, más la caja abierta de hoy.
   d.seq.caja = 0

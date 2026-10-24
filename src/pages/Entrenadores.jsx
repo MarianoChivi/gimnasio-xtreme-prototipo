@@ -17,7 +17,7 @@ export default function Entrenadores() {
   const [baja, setBaja] = useState(null)
   const [ver, setVer] = useState(null)
   const [pago, setPago] = useState(null)
-  const [pf, setPf] = useState({ periodo: '', monto: '', metodo: 'Transferencia' })
+  const [pf, setPf] = useState({ periodo: '', monto: '', metodo: 'Transferencia', fecha: '' })
   const [ok, setOk] = useState(null)
   const [comp, setComp] = useState(null)
   const [error, setError] = useState('')
@@ -42,7 +42,7 @@ export default function Entrenadores() {
   }
   const pagar = () => {
     try {
-      setOk(api.pagarEntrenador(pago.id, pf.periodo, pf.monto, pf.metodo))
+      setOk(api.pagarEntrenador(pago.id, pf.periodo, pf.monto, pf.metodo, pf.fecha))
       setPago(null)
     } catch (e) {
       setError(e.message)
@@ -100,7 +100,7 @@ export default function Entrenadores() {
                     variant="outline"
                     icon={Banknote}
                     onClick={() => {
-                      setPf({ periodo: mes, monto: '', metodo: 'Transferencia' })
+                      setPf({ periodo: mes, monto: '', metodo: 'Transferencia', fecha: hoy })
                       setError('')
                       setPago(e)
                     }}
@@ -203,6 +203,9 @@ export default function Entrenadores() {
             <Field label="Monto ($)">
               <Input type="number" min="1" value={pf.monto} onChange={(e) => setPf({ ...pf, monto: e.target.value })} autoFocus />
             </Field>
+            <Field label="Fecha del pago">
+              <Input type="date" max={hoy} value={pf.fecha} onChange={(e) => setPf({ ...pf, fecha: e.target.value })} />
+            </Field>
             <Field label="Método de pago">
               <Segmented options={['Efectivo', 'Transferencia']} value={pf.metodo} onChange={(m) => setPf({ ...pf, metodo: m })} />
             </Field>
@@ -215,7 +218,7 @@ export default function Entrenadores() {
         open={!!ok}
         onClose={() => setOk(null)}
         title="Pago a entrenador registrado"
-        rows={ok ? [['Período', periodoLabel(ok.pago.periodo)], ['Monto', money(ok.pago.monto)], ['Método', ok.pago.metodo], ['Comprobante', ok.comprobante.numero]] : []}
+        rows={ok ? [['Período', periodoLabel(ok.pago.periodo)], ['Fecha', fmtDate(ok.pago.fecha)], ['Monto', money(ok.pago.monto)], ['Método', ok.pago.metodo], ['Comprobante', ok.comprobante.numero]] : []}
         extra={
           ok && (
             <Button variant="outline" icon={FileText} onClick={() => setComp(ok.comprobante.numero)}>

@@ -116,9 +116,13 @@ function validarSocio(ds) {
   if (ds.email && !/^\S+@\S+\.\S+$/.test(ds.email)) fail('El email no tiene un formato válido.')
 }
 
-export function registrarSocio(d, ds) {
+// CU01: el alta incluye el cobro de la primera cuota. Si algo falla, no se registra nada.
+export function registrarSocio(d, ds, metodo) {
+  requiereCaja(d)
+  if (!valorVigente(d)) fail('No hay un valor de cuota vigente registrado.')
   validarSocio(ds)
   if (d.socios.some((s) => s.dni === ds.dni)) fail('Ya existe un socio registrado con ese DNI.')
+  if (!metodo) fail('Seleccioná el método de pago de la primera cuota.')
   const hoy = todayISO()
   const s = {
     dni: ds.dni,
@@ -126,14 +130,16 @@ export function registrarSocio(d, ds) {
     apellido: ds.apellido.trim(),
     telefono: ds.telefono.trim(),
     email: ds.email?.trim() ?? '',
-    fechaIngreso: ds.fechaIngreso || hoy,
-    cuotasDesde: ds.fechaIngreso || hoy,
+    fechaIngreso: hoy,
+    cuotasDesde: hoy,
     baja: false,
     fechaBaja: null,
   }
   d.socios.push(s)
   generarCuotas(d)
-  return s
+  const cuota = d.cuotas.find((c) => c.socioDni === s.dni && c.periodo === monthKey(hoy))
+  const r = registrarPago(d, s.dni, [cuota.id], metodo)
+  return { socio: s, cuota, ...r }
 }
 
 export function modificarSocio(d, dni, ds) {
@@ -165,22 +171,34 @@ export function reactivarSocio(d, dni) {
 
 // ---------- Cuotas y pagos (CU05 a CU08) ----------
 
+// CU06: solo es modificable el último valor registrado, mientras no se haya aplicado a ninguna cuota.
+export const valorModificable = (d) => {
+  const ultimo = [...d.valoresCuota].sort((a, b) => b.id - a.id)[0]
+  if (!ultimo) return null
+  const aplicado = d.cuotas.some((c) => c.vencimiento >= ultimo.fechaDesde)
+  return aplicado ? null : ultimo
+}
+
+function validarValorCuota(valor, fechaDesde) {
+  if (!(valor > 0)) fail('El valor debe ser un número positivo.')
+  if (!fechaDesde || fechaDesde < todayISO()) fail('No se admite una vigencia retroactiva: la fecha no puede ser anterior a hoy.')
+}
+
 export function registrarValorCuota(d, valor, fechaDesde) {
   valor = Number(valor)
-  if (!(valor > 0)) fail('El valor debe ser mayor a cero.')
-  if (!fechaDesde || fechaDesde <= todayISO()) fail('La fecha de vigencia debe ser posterior a hoy.')
-  if (d.valoresCuota.some((v) => v.fechaDesde > todayISO())) fail('Ya hay un valor futuro registrado. Modificalo en lugar de crear otro.')
+  validarValorCuota(valor, fechaDesde)
+  if (valorModificable(d)) fail('Ya hay un valor registrado que todavía no se aplicó. Modificalo en lugar de crear otro.')
   const v = { id: next(d, 'valorCuota'), valor, fechaDesde, fechaRegistro: todayISO() }
   d.valoresCuota.push(v)
   return v
 }
 
-export function modificarValorCuota(d, id, valor) {
+export function modificarValorCuota(d, id, valor, fechaDesde) {
   const v = d.valoresCuota.find((x) => x.id === id) ?? fail('Valor no encontrado.')
-  if (v.fechaDesde <= todayISO()) fail('Solo se puede modificar un valor que todavía no se aplicó.')
+  if (valorModificable(d)?.id !== id) fail('El último valor registrado ya fue aplicado a cuotas y no puede modificarse.')
   valor = Number(valor)
-  if (!(valor > 0)) fail('El valor debe ser mayor a cero.')
-  v.valor = valor
+  validarValorCuota(valor, fechaDesde)
+  Object.assign(v, { valor, fechaDesde })
   return v
 }
 
@@ -207,13 +225,23 @@ export function registrarPago(d, dni, cuotaIds, metodo) {
   return { pago, comprobante: comp, estadoSocio: estadoSocio(s, d.cuotas) }
 }
 
+// CU08 y CU15: solo se anula lo registrado en una caja que sigue abierta.
+export const cajaDe = (d, cajaId) => d.cajas.find((c) => c.id === cajaId)
+
+const anularComprobante = (d, numero) => {
+  const c = d.comprobantes.find((x) => x.numero === numero)
+  if (c) c.anulado = true
+}
+
 export function anularPago(d, id) {
   const p = d.pagos.find((x) => x.id === id) ?? fail('Pago no encontrado.')
   if (p.estado === 'Anulado') fail('El pago ya está anulado.')
+  if (cajaDe(d, p.cajaId)?.estado !== 'Abierta') fail('No se puede anular un pago registrado en una caja cerrada.')
   p.estado = 'Anulado'
   d.cuotas.forEach((c) => {
     if (c.pagoId === id) c.pagoId = null
   })
+  anularComprobante(d, p.comprobante)
   return p
 }
 
@@ -297,15 +325,12 @@ export function ajustarStock(d, id, tipo, cantidad) {
 
 // ---------- Ventas (CU14, CU15) ----------
 
-export function registrarVenta(d, cliente, items, metodo) {
+// CU14: la venta es de mostrador y no se asocia a ningún cliente.
+export function registrarVenta(d, items, metodo) {
   const caja = requiereCaja(d)
   if (!items.length) fail('Agregá al menos un producto.')
   if (!metodo) fail('Seleccioná el método de pago.')
-  let destinatario = 'Cliente externo'
-  if (cliente.tipo === 'socio') {
-    const s = d.socios.find((x) => x.dni === cliente.dni) ?? fail('Seleccioná un socio válido.')
-    destinatario = `${s.nombre} ${s.apellido} · DNI ${s.dni}`
-  }
+  const destinatario = 'Venta de mostrador'
   const lineas = items.map((it) => {
     const p = d.productos.find((x) => x.id === it.productoId)
     if (!p || p.estado !== 'Activo') fail('Hay un producto que ya no está disponible.')
@@ -327,7 +352,6 @@ export function registrarVenta(d, cliente, items, metodo) {
     id: n,
     numero: code('VEN', n),
     fecha: nowISO(),
-    cliente,
     items: lineas.map((l) => ({ productoId: l.p.id, nombre: l.p.nombre, cantidad: l.cantidad, precio: l.p.precioVenta })),
     total,
     metodo,
@@ -343,11 +367,13 @@ export function registrarVenta(d, cliente, items, metodo) {
 export function anularVenta(d, id) {
   const v = d.ventas.find((x) => x.id === id) ?? fail('Venta no encontrada.')
   if (v.estado === 'Anulada') fail('La venta ya está anulada.')
+  if (cajaDe(d, v.cajaId)?.estado !== 'Abierta') fail('No se puede anular una venta registrada en una caja cerrada.')
   v.estado = 'Anulada'
   v.items.forEach((it) => {
     const p = d.productos.find((x) => x.id === it.productoId)
     if (p) p.stock += it.cantidad
   })
+  anularComprobante(d, v.comprobante)
   return v
 }
 
@@ -481,24 +507,27 @@ export function bajaEntrenador(d, id) {
   return e
 }
 
-export function asignarEntrenador(d, dni, entrenadorId) {
+export function asignarEntrenador(d, dni, entrenadorId, fechaInicio) {
   const s = d.socios.find((x) => x.dni === dni) ?? fail('Socio no encontrado.')
-  if (estadoSocio(s, d.cuotas) !== 'Al día') fail('Solo se puede asignar entrenador a un socio Al día.')
+  if (estadoSocio(s, d.cuotas) !== 'Al día') fail('El socio no está al día con sus cuotas y no puede contratar el servicio de entrenamiento personalizado hasta regularizar su situación.')
   const e = d.entrenadores.find((x) => x.id === entrenadorId && x.estado === 'Activo') ?? fail('Seleccioná un entrenador.')
+  if (!fechaInicio) fail('Indicá la fecha de inicio de la asignación.')
   const prev = asignacionActiva(d, dni)
   if (prev?.entrenadorId === e.id) fail('El socio ya tiene asignado a ese entrenador.')
-  if (prev) Object.assign(prev, { estado: 'Finalizada', fechaFin: todayISO() })
-  const a = { id: next(d, 'asignacion'), socioDni: dni, entrenadorId: e.id, fechaInicio: todayISO(), fechaFin: null, estado: 'Activa' }
+  if (prev && fechaInicio < prev.fechaInicio) fail(`La fecha de inicio no puede ser anterior al inicio de la asignación actual (${prev.fechaInicio.split('-').reverse().join('/')}).`)
+  if (prev) Object.assign(prev, { estado: 'Finalizada', fechaFin: fechaInicio })
+  const a = { id: next(d, 'asignacion'), socioDni: dni, entrenadorId: e.id, fechaInicio, fechaFin: null, estado: 'Activa' }
   d.asignaciones.push(a)
   return a
 }
 
-export function pagarEntrenador(d, entrenadorId, periodo, monto, metodo) {
+export function pagarEntrenador(d, entrenadorId, periodo, monto, metodo, fecha) {
   const e = d.entrenadores.find((x) => x.id === entrenadorId) ?? fail('Entrenador no encontrado.')
   monto = Number(monto)
   if (!periodo) fail('Seleccioná el período.')
   if (!(monto > 0)) fail('El monto debe ser mayor a cero.')
   if (!metodo) fail('Seleccioná el método de pago.')
+  if (!fecha || fecha > todayISO()) fail('Ingresá una fecha de pago válida (no puede ser posterior a hoy).')
   if (d.pagosEntrenador.some((p) => p.entrenadorId === entrenadorId && p.periodo === periodo)) fail(`Ya se registró el pago de ${periodoLabel(periodo)} a este entrenador.`)
   const id = next(d, 'pagoEntrenador')
   const comp = crearComprobante(d, {
@@ -509,7 +538,7 @@ export function pagarEntrenador(d, entrenadorId, periodo, monto, metodo) {
     destinatario: `${e.nombre} ${e.apellido} · DNI ${e.dni}`,
     lineas: [{ concepto: `Servicios de ${periodoLabel(periodo)}`, cantidad: 1, importe: monto }],
   })
-  const p = { id, entrenadorId, periodo, monto, metodo, fecha: nowISO(), comprobante: comp.numero }
+  const p = { id, entrenadorId, periodo, monto, metodo, fecha, comprobante: comp.numero }
   d.pagosEntrenador.push(p)
   return { pago: p, comprobante: comp }
 }

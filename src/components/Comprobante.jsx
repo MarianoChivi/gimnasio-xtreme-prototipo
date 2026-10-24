@@ -22,7 +22,12 @@ function Documento({ c }) {
           <p className="font-mono text-base font-bold">{c.numero}</p>
         </div>
       </div>
-      <div className="space-y-5 rounded-b-xl border border-t-0 border-ink-100 px-6 py-5">
+      <div className="relative space-y-5 rounded-b-xl border border-t-0 border-ink-100 px-6 py-5">
+        {c.anulado && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="-rotate-12 rounded-xl border-4 border-danger-500/70 px-6 py-2 text-4xl font-extrabold tracking-[0.3em] text-danger-500/70">ANULADO</span>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <p className="text-[11px] uppercase tracking-wide text-ink-400">Tipo</p>
@@ -33,7 +38,7 @@ function Documento({ c }) {
             <p className="font-semibold">{fmtDateTime(c.fecha)}</p>
           </div>
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-ink-400">{c.tipo === 'Pago a proveedor' || c.tipo === 'Pago a entrenador' ? 'Beneficiario' : 'Cliente'}</p>
+            <p className="text-[11px] uppercase tracking-wide text-ink-400">{c.tipo === 'Pago a proveedor' || c.tipo === 'Pago a entrenador' ? 'Beneficiario' : c.tipo === 'Venta' ? 'Operación' : 'Socio'}</p>
             <p className="font-semibold">{c.destinatario}</p>
           </div>
           <div className="text-right">
@@ -78,7 +83,7 @@ export default function ComprobanteModal({ numero, onClose }) {
       <Modal
         open
         onClose={onClose}
-        title={`Comprobante ${c.numero}`}
+        title={`Comprobante ${c.numero}${c.anulado ? ' (anulado)' : ''}`}
         icon={FileText}
         size="lg"
         footer={

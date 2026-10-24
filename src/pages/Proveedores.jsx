@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Building2, Mail, Pencil, Phone, Plus, Trash2 } from 'lucide-react'
+import { Banknote, Building2, FileText, Mail, Pencil, Phone, Plus, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { deudaProveedor } from '../logic'
-import { money, normalize } from '../utils'
-import { Badge, Button, Confirm, ErrorBox, Field, IconButton, Input, Modal, PageHeader, SearchInput, Table, useToast } from '../components/ui'
+import { fmtDate, money, normalize } from '../utils'
+import ComprobanteModal from '../components/Comprobante'
+import { Badge, Button, Confirm, cx, ErrorBox, Field, IconButton, Input, Modal, PageHeader, SearchInput, Segmented, SuccessModal, Table, useToast } from '../components/ui'
 
 const vacio = { nombre: '', cuit: '', telefono: '', email: '' }
 
@@ -15,6 +16,20 @@ export default function Proveedores() {
   const [form, setForm] = useState(vacio)
   const [baja, setBaja] = useState(null)
   const [error, setError] = useState('')
+  const [pagar, setPagar] = useState(null)
+  const [compraId, setCompraId] = useState(null)
+  const [metodo, setMetodo] = useState('Transferencia')
+  const [ok, setOk] = useState(null)
+  const [comp, setComp] = useState(null)
+  const adeudadas = (id) => state.compras.filter((c) => c.proveedorId === id && c.estado !== 'Pendiente' && !c.pago).sort((a, b) => a.fecha.localeCompare(b.fecha))
+  const confirmarPago = () => {
+    try {
+      setOk(api.pagarProveedor(compraId, metodo))
+      setPagar(null)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
   const rows = state.proveedores.filter((p) => p.estado === 'Activo' && (!q || normalize(p.nombre).includes(normalize(q)) || p.cuit.includes(q)))
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
@@ -80,7 +95,26 @@ export default function Proveedores() {
             align: 'right',
             render: (p) => {
               const d = deudaProveedor(state, p.id)
-              return d ? <span className="font-semibold text-warn-600">{money(d)}</span> : <Badge>Al día</Badge>
+              return d ? (
+                <div className="flex items-center justify-end gap-2">
+                  <span className="font-semibold text-warn-600">{money(d)}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    icon={Banknote}
+                    onClick={() => {
+                      setCompraId(adeudadas(p.id)[0]?.id ?? null)
+                      setMetodo('Transferencia')
+                      setError('')
+                      setPagar(p)
+                    }}
+                  >
+                    Pagar
+                  </Button>
+                </div>
+              ) : (
+                <Badge>Al día</Badge>
+              )
             },
           },
           {
@@ -127,6 +161,64 @@ export default function Proveedores() {
           </div>
         </div>
       </Modal>
+      <Modal
+        open={!!pagar}
+        onClose={() => setPagar(null)}
+        title={pagar ? `Registrar Pago a ${pagar.nombre}` : ''}
+        icon={Banknote}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setPagar(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmarPago} disabled={!compraId}>
+              Registrar pago
+            </Button>
+          </>
+        }
+      >
+        {pagar && (
+          <div className="space-y-4">
+            <p className="text-sm text-ink-500">Compras recibidas sin pago. Seleccioná la que vas a saldar.</p>
+            <div className="space-y-2">
+              {adeudadas(pagar.id).map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setCompraId(c.id)}
+                  className={cx('flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition', compraId === c.id ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-500/20' : 'border-ink-100 hover:border-brand-300')}
+                >
+                  <div>
+                    <p className="font-mono text-xs font-semibold text-ink-700">{c.numero}</p>
+                    <p className="text-xs text-ink-400">
+                      Recibida el {fmtDate(c.fechaRecepcion)} · <span className="text-ink-500">{c.estado}</span>
+                    </p>
+                  </div>
+                  <span className="font-bold text-ink-800">{money(c.total)}</span>
+                </button>
+              ))}
+            </div>
+            <Field label="Método de pago">
+              <Segmented options={['Efectivo', 'Transferencia']} value={metodo} onChange={setMetodo} />
+            </Field>
+            <ErrorBox>{error}</ErrorBox>
+          </div>
+        )}
+      </Modal>
+      <SuccessModal
+        open={!!ok}
+        onClose={() => setOk(null)}
+        title="Pago a proveedor registrado"
+        rows={ok ? [['Compra', ok.compra.numero], ['Proveedor', state.proveedores.find((p) => p.id === ok.compra.proveedorId)?.nombre], ['Monto', money(ok.compra.pago.monto)], ['Método', ok.compra.pago.metodo], ['Comprobante', ok.comprobante.numero]] : []}
+        extra={
+          ok && (
+            <Button variant="outline" icon={FileText} onClick={() => setComp(ok.comprobante.numero)}>
+              Ver comprobante
+            </Button>
+          )
+        }
+      />
+      {comp && <ComprobanteModal numero={comp} onClose={() => setComp(null)} />}
       <Confirm
         open={!!baja}
         onClose={() => setBaja(null)}

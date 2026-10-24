@@ -5,17 +5,19 @@ import { useStore } from '../store'
 import { asignacionActiva, cuotasDe, estadoCuota } from '../logic'
 import { fmtDate, fmtDateTime, initials, money, periodoLabel } from '../utils'
 import ComprobanteModal from '../components/Comprobante'
-import { Badge, Button, Card, Confirm, ErrorBox, Field, IconButton, InfoBox, Modal, PageHeader, Section, Select, Table, useToast } from '../components/ui'
+import { Badge, Button, Card, Confirm, ErrorBox, Field, IconButton, InfoBox, Input, Modal, PageHeader, Section, Select, Table, useToast } from '../components/ui'
 
 export default function SocioDetalle() {
   const { dni } = useParams()
-  const { state, api, estadoSocio, hoy } = useStore()
+  const { state, api, estadoSocio, hoy, usuario } = useStore()
+  const pt = usuario.rol === 'Propietario'
   const nav = useNavigate()
   const toast = useToast()
   const [confirm, setConfirm] = useState(null)
   const [comp, setComp] = useState(null)
   const [asignar, setAsignar] = useState(false)
   const [entrenadorId, setEntrenadorId] = useState('')
+  const [fechaInicio, setFechaInicio] = useState('')
   const [error, setError] = useState('')
   const s = state.socios.find((x) => x.dni === dni)
   if (!s) return <Navigate to="/socios" replace />
@@ -44,7 +46,7 @@ export default function SocioDetalle() {
 
   const guardarAsignacion = () => {
     try {
-      api.asignarEntrenador(dni, Number(entrenadorId))
+      api.asignarEntrenador(dni, Number(entrenadorId), fechaInicio)
       toast('Entrenador asignado correctamente.')
       setAsignar(false)
     } catch (e) {
@@ -84,9 +86,11 @@ export default function SocioDetalle() {
           </div>
           <div className="flex flex-wrap gap-2">
             {s.baja ? (
-              <Button icon={RotateCcw} onClick={() => setConfirm('reactivar')}>
-                Reactivar Socio
-              </Button>
+              pt && (
+                <Button icon={RotateCcw} onClick={() => setConfirm('reactivar')}>
+                  Reactivar Socio
+                </Button>
+              )
             ) : (
               <>
                 <Button icon={CreditCard} onClick={() => nav(`/pagos?dni=${dni}`)} disabled={!deuda.length}>
@@ -95,9 +99,11 @@ export default function SocioDetalle() {
                 <Button variant="outline" icon={Pencil} onClick={() => nav(`/socios/${dni}/editar`)}>
                   Modificar
                 </Button>
-                <Button variant="danger-outline" icon={UserMinus} onClick={() => setConfirm('baja')}>
-                  Dar de baja
-                </Button>
+                {pt && (
+                  <Button variant="danger-outline" icon={UserMinus} onClick={() => setConfirm('baja')}>
+                    Dar de baja
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -151,13 +157,14 @@ export default function SocioDetalle() {
             ) : (
               <p className="text-sm text-ink-400">Sin entrenador asignado.</p>
             )}
-            {!s.baja && (
+            {!s.baja && pt && (
               <Button
                 variant="outline"
                 size="sm"
                 className="mt-4 w-full"
                 onClick={() => {
                   setEntrenadorId('')
+                  setFechaInicio(hoy)
                   setError('')
                   setAsignar(true)
                 }}
@@ -172,7 +179,6 @@ export default function SocioDetalle() {
                 ['Cuotas pagadas', cuotas.filter((c) => c.pagoId).length],
                 ['Cuotas adeudadas', deuda.length],
                 ['Total abonado', money(pagos.filter((p) => p.estado !== 'Anulado').reduce((a, p) => a + p.monto, 0))],
-                ['Compras en el gimnasio', state.ventas.filter((v) => v.cliente.dni === dni && v.estado !== 'Anulada').length],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between">
                   <dt className="text-ink-400">{k}</dt>
@@ -214,7 +220,7 @@ export default function SocioDetalle() {
             <Button variant="outline" onClick={() => setAsignar(false)}>
               Cancelar
             </Button>
-            <Button onClick={guardarAsignacion} disabled={!entrenadorId}>
+            <Button onClick={guardarAsignacion} disabled={!entrenadorId || estado !== 'Al día'}>
               Confirmar asignación
             </Button>
           </>
@@ -234,7 +240,10 @@ export default function SocioDetalle() {
                 ))}
             </Select>
           </Field>
-          {entrenador && <p className="text-xs text-ink-400">La asignación actual con {entrenador.nombre} {entrenador.apellido} pasará a estado Finalizada.</p>}
+          <Field label="Fecha de inicio">
+            <Input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
+          </Field>
+          {entrenador && <p className="text-xs text-ink-400">La asignación actual con {entrenador.nombre} {entrenador.apellido} pasará a estado Finalizada con fecha de fin igual a la fecha de inicio de la nueva.</p>}
           <ErrorBox>{error}</ErrorBox>
         </div>
       </Modal>

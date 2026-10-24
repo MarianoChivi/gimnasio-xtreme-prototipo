@@ -34,7 +34,7 @@ export default function Dashboard() {
   const nav = useNavigate()
   const caja = cajaAbierta(state)
   const mov = caja ? movimientosCaja(state, caja.id) : null
-  const activos = state.socios.filter((s) => !s.baja).length
+  const registrados = state.socios.length
   const vencidos = state.socios.filter((s) => estadoSocio.get(s.dni) === 'Vencido')
   const cuotasVencidas = state.cuotas.filter((c) => !c.pagoId && c.vencimiento < hoy && !state.socios.find((s) => s.dni === c.socioDni)?.baja).length
   const bajo = stockBajo(state)
@@ -65,7 +65,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat value={activos} label="Socios activos" icon={Users} tone="brand" to="/socios" />
+        <Stat value={registrados} label="Socios registrados" icon={Users} tone="brand" to="/socios" />
         <Stat value={cuotasVencidas} label={`Cuotas vencidas (${vencidos.length} socios)`} icon={AlertTriangle} tone="warn" to="/reportes" />
         <Stat value={money(mov?.total ?? 0)} label="Recaudación del día" icon={Wallet} tone="brand" to="/caja" />
         <Stat value={bajo.length} label="Productos con stock bajo" icon={PackageX} tone="danger" to="/inventario" />

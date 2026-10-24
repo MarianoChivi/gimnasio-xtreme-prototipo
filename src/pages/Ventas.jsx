@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Ban, FileText, List, Minus, Package, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
-import { cajaAbierta, nombreSocio } from '../logic'
+import { cajaAbierta, cajaDe } from '../logic'
 import { fmtDateTime, money, normalize } from '../utils'
 import ComprobanteModal from '../components/Comprobante'
-import { Badge, Button, Card, Confirm, cx, ErrorBox, Field, IconButton, InfoBox, PageHeader, SearchInput, Segmented, Select, SuccessModal, Table, Tabs, useToast } from '../components/ui'
+import AnularModal from '../components/AnularModal'
+import { Badge, Button, Card, cx, ErrorBox, Field, IconButton, InfoBox, PageHeader, SearchInput, Segmented, SuccessModal, Table, Tabs, useToast } from '../components/ui'
 
 const CAT_COLOR = {
   Suplementos: 'bg-brand-50 text-brand-700',
@@ -19,8 +20,6 @@ function NuevaVenta() {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('Todas')
   const [items, setItems] = useState([])
-  const [tipo, setTipo] = useState('Cliente externo')
-  const [dni, setDni] = useState('')
   const [metodo, setMetodo] = useState('Efectivo')
   const [error, setError] = useState('')
   const [ok, setOk] = useState(null)
@@ -44,7 +43,7 @@ function NuevaVenta() {
 
   const confirmar = () => {
     try {
-      const r = api.registrarVenta(tipo === 'Socio' ? { tipo: 'socio', dni } : { tipo: 'externo' }, items, metodo)
+      const r = api.registrarVenta(items, metodo)
       setOk(r)
       setError('')
     } catch (e) {
@@ -53,8 +52,6 @@ function NuevaVenta() {
   }
   const limpiar = () => {
     setItems([])
-    setDni('')
-    setTipo('Cliente externo')
     setError('')
   }
 
@@ -146,22 +143,6 @@ function NuevaVenta() {
             })}
           </div>
           <div className="space-y-4 border-t border-ink-100 bg-ink-50/50 px-5 py-4">
-            <Field label="Cliente">
-              <Segmented options={['Cliente externo', 'Socio']} value={tipo} onChange={setTipo} />
-            </Field>
-            {tipo === 'Socio' && (
-              <Select value={dni} onChange={(e) => setDni(e.target.value)}>
-                <option value="">Seleccioná el socio...</option>
-                {state.socios
-                  .filter((s) => !s.baja)
-                  .sort((a, b) => a.apellido.localeCompare(b.apellido))
-                  .map((s) => (
-                    <option key={s.dni} value={s.dni}>
-                      {s.apellido}, {s.nombre} · {s.dni}
-                    </option>
-                  ))}
-              </Select>
-            )}
             <Field label="Método de pago">
               <Segmented options={['Efectivo', 'Transferencia']} value={metodo} onChange={setMetodo} />
             </Field>
@@ -174,7 +155,7 @@ function NuevaVenta() {
               <Button variant="outline" size="lg" onClick={limpiar} disabled={!items.length}>
                 Cancelar
               </Button>
-              <Button size="lg" onClick={confirmar} disabled={!items.length || (tipo === 'Socio' && !dni)}>
+              <Button size="lg" onClick={confirmar} disabled={!items.length}>
                 Confirmar Venta
               </Button>
             </div>
@@ -193,7 +174,6 @@ function NuevaVenta() {
           ok
             ? [
                 ['Venta', ok.venta.numero],
-                ['Cliente', ok.venta.cliente.tipo === 'socio' ? nombreSocio(state, ok.venta.cliente.dni) : 'Cliente externo'],
                 ['Productos', ok.venta.items.reduce((a, i) => a + i.cantidad, 0)],
                 ['Método', ok.venta.metodo],
                 ['Total', money(ok.venta.total)],
@@ -215,26 +195,25 @@ function NuevaVenta() {
 }
 
 function Listado() {
-  const { state, api, usuario } = useStore()
+  const { state, api } = useStore()
   const toast = useToast()
   const [q, setQ] = useState('')
   const [comp, setComp] = useState(null)
   const [anular, setAnular] = useState(null)
-  const cliente = (v) => (v.cliente.tipo === 'socio' ? nombreSocio(state, v.cliente.dni) : 'Cliente externo')
   const rows = state.ventas
-    .filter((v) => !q || v.numero.toLowerCase().includes(q.toLowerCase()) || normalize(cliente(v)).includes(normalize(q)))
+    .filter((v) => !q || v.numero.toLowerCase().includes(q.toLowerCase()) || v.comprobante.toLowerCase().includes(q.toLowerCase()) || v.items.some((i) => normalize(i.nombre).includes(normalize(q))))
     .sort((a, b) => b.fecha.localeCompare(a.fecha))
     .slice(0, 80)
   return (
     <>
-      <SearchInput value={q} onChange={setQ} placeholder="Buscar por número de venta o cliente..." className="mb-4 max-w-md" />
+      <SearchInput value={q} onChange={setQ} placeholder="Buscar por número de venta, comprobante o producto..." className="mb-4 max-w-md" />
       <Table
         rows={rows}
         footer={`Mostrando las últimas ${rows.length} ventas`}
         columns={[
           { header: 'Venta', render: (v) => <span className="font-mono text-xs font-semibold">{v.numero}</span> },
           { header: 'Fecha', render: (v) => fmtDateTime(v.fecha) },
-          { header: 'Cliente', render: cliente, className: 'hidden md:table-cell' },
+          { header: 'Comprobante', render: (v) => <span className="font-mono text-xs">{v.comprobante}</span>, className: 'hidden md:table-cell' },
           { header: 'Productos', render: (v) => v.items.map((i) => `${i.cantidad}× ${i.nombre}`).join(', '), className: 'hidden xl:table-cell max-w-xs truncate' },
           { header: 'Total', align: 'right', render: (v) => money(v.total) },
           { header: 'Estado', render: (v) => <Badge>{v.estado}</Badge> },
@@ -244,33 +223,30 @@ function Listado() {
             render: (v) => (
               <div className="flex justify-end gap-1">
                 <IconButton icon={FileText} title="Ver comprobante" onClick={() => setComp(v.comprobante)} />
-                {v.estado === 'Confirmada' && usuario.rol === 'Propietario' && <IconButton icon={Ban} title="Anular venta" variant="danger" onClick={() => setAnular(v)} />}
+                {v.estado === 'Confirmada' && <IconButton icon={Ban} title="Anular venta" variant="danger" onClick={() => setAnular(v)} />}
               </div>
             ),
           },
         ]}
       />
-      <Confirm
+      <AnularModal
         open={!!anular}
         onClose={() => setAnular(null)}
         title="Anular Venta"
-        confirmText="Anular venta"
+        caja={anular && cajaDe(state, anular.cajaId)}
+        rows={anular ? [['Venta', anular.numero], ['Fecha', fmtDateTime(anular.fecha)], ['Productos', anular.items.map((i) => `${i.cantidad}× ${i.nombre}`).join(', ')], ['Total', money(anular.total)], ['Comprobante', anular.comprobante], ['Estado', <Badge key="e">{anular.estado}</Badge>]] : []}
         onConfirm={() => {
           try {
             api.anularVenta(anular.id)
-            toast(`Venta ${anular.numero} anulada. Se repuso el stock.`)
+            toast(`Venta ${anular.numero} anulada. Se repuso el stock y se restó de la caja del día.`)
           } catch (e) {
             toast(e.message, 'error')
           }
           setAnular(null)
         }}
       >
-        {anular && (
-          <>
-            ¿Confirmás la anulación de la venta <b>{anular.numero}</b> por <b>{money(anular.total)}</b>? Los productos vuelven al stock y la venta pasa a estado Anulada.
-          </>
-        )}
-      </Confirm>
+        Los productos vuelven al stock, el monto se resta de la caja del día y el comprobante queda anulado.
+      </AnularModal>
       {comp && <ComprobanteModal numero={comp} onClose={() => setComp(null)} />}
     </>
   )
@@ -281,7 +257,7 @@ export default function Ventas() {
   const tab = params.get('tab') ?? 'nueva'
   return (
     <>
-      <PageHeader title="Ventas" subtitle="Venta de productos a socios o clientes externos." />
+      <PageHeader title="Ventas" subtitle="Venta de productos en el mostrador del gimnasio." />
       <Tabs
         value={tab}
         onChange={(v) => setParams(v === 'nueva' ? {} : { tab: v })}
