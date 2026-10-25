@@ -2,7 +2,7 @@
 
 Prototipo funcional del sistema de gestión del Gimnasio Xtreme (Salta Capital), desarrollado en el marco del Seminario de Sistemas
 
-**Demo:** https://gimnasio-xtreme-prototipo.vercel.app/
+**Demo:** https://gimnasio-xtreme-prototipo-seminario.vercel.app/
 
 ## Qué permite hacer
 
