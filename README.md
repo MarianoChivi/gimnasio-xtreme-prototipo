@@ -1,6 +1,6 @@
 # Gimnasio Xtreme · Prototipo funcional
 
-Prototipo funcional del sistema de gestión del Gimnasio Xtreme (Salta Capital), desarrollado en el marco del Seminario de Sistemas de la Facultad de Ciencias Exactas de la Universidad Nacional de Salta (2026), con el título "Análisis y diseño de un sistema informático de gestión de un gimnasio de Salta, aplicando Proceso Unificado".
+Prototipo funcional del sistema de gestión del Gimnasio Xtreme (Salta Capital), desarrollado en el marco del Seminario de Sistemas
 
 **Demo:** https://gimnasio-xtreme-prototipo.vercel.app/
 
